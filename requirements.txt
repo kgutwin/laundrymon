@@ -1,0 +1,2 @@
+adafruit-circuitpython-requests
+adafruit-circuitpython-hashlib
