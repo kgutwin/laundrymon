@@ -2,12 +2,14 @@ import collections
 import random
 import time
 import busio
+import pwmio
 import digitalio
 import displayio
+import microcontroller
 import adafruit_ili9341
 import adafruit_focaltouch
 
-from pins import Display, Touch, BACK_BUTTON
+from pins import Display, Touch, BACK_BUTTON, PIEZO_L, PIEZO_R
 
 # display backlight
 backlight = digitalio.DigitalInOut(Display.Lite)
@@ -42,3 +44,15 @@ display = adafruit_ili9341.ILI9341(display_bus, width=320, height=240)
 # back button
 back_button = digitalio.DigitalInOut(BACK_BUTTON)
 back_button.switch_to_input(digitalio.Pull.UP)
+
+# piezo
+
+piezo_l = pwmio.PWMOut(PIEZO_L, frequency=900)
+piezo_r = pwmio.PWMOut(PIEZO_R, frequency=1000)
+
+def beep():
+    piezo_l.duty_cycle = 2 ** 15
+    piezo_r.duty_cycle = 2 ** 15
+    microcontroller.delay_us(10000)
+    piezo_r.duty_cycle = 0
+    piezo_l.duty_cycle = 0

@@ -1,5 +1,5 @@
 import gc
-import time
+#import time
 from asyncio import sleep
 from array import array
 import bitmaptools
@@ -7,12 +7,12 @@ import displayio
 import terminalio
 import vectorio
 import wifi
-from adafruit_display_shapes.line import Line
-from adafruit_display_shapes.roundrect import RoundRect
-from adafruit_display_shapes.sparkline import Sparkline
+#from adafruit_display_shapes.line import Line
+#from adafruit_display_shapes.roundrect import RoundRect
+#from adafruit_display_shapes.sparkline import Sparkline
 from adafruit_display_text.bitmap_label import Label
 
-from display import display, backlight, touch_screen_point, back_button
+from display import display, backlight, touch_screen_point, back_button, beep
 
 
 palette = displayio.Palette(8)
@@ -65,11 +65,12 @@ def icon(rows, background=0):
 
 
 class WifiIcon:
+    wifi_icon_bitmap = icon(WIFI_ICON, background=BLUE_I)
+    
     def __init__(self):
         self.group = displayio.Group(x=280, y=4)
-        wifi_icon_bitmap = icon(WIFI_ICON, background=BLUE_I)
         self.group.append(displayio.TileGrid(
-            wifi_icon_bitmap, pixel_shader=palette, x=0, y=0
+            self.wifi_icon_bitmap, pixel_shader=palette, x=0, y=0
         ))
 
     def set_status(self, status):
@@ -90,6 +91,8 @@ class ConfirmBox:
             x=2, y=2, color_index=BLACK_I
         ))
         self.group.append(label(message, (150, 20), align=CENTER))
+        # TODO: memory save: pay close attention to memory used by
+        # RoundRect, replace with boring vectorio.Rectangle if needed
         confirm = RoundRect(
             x=60, y=70, width=80, height=30, r=3,
             fill=GREEN_V, outline=WHITE_V, stroke=1
@@ -141,6 +144,7 @@ class Page:
     def touch(self, pos):
         for rect in self.touch_zones:
             if rect[0] <= pos.x <= rect[2] and rect[1] <= pos.y <= rect[3]:
+                beep()
                 self.touch_zones[rect]()
                 return True
             
@@ -243,9 +247,14 @@ class PageStandard(Page):
             
         
 class PageAuto(PageStandard):
-    def __init__(self):
+    def __init__(self, auto_state):
         super().__init__('Auto')
+        self.auto_state = auto_state
 
+    def update(self):
+        self.set_washer_state(self.auto_state.washer_state)
+        self.set_washer_elapsed(self.auto_state.washer_elapsed)
+        
         
 class PageStats(Page):
     def __init__(self, state):
@@ -253,8 +262,8 @@ class PageStats(Page):
         self.state = state
         self.group.append(label('Mem Alloc:', (10, 100)))
         self.group.append(label('Mem Free:', (10, 120)))
-        self.mem_alloc = label('', (80, 100))
-        self.mem_free = label('', (80, 120))
+        self.mem_alloc = label('', (100, 100))
+        self.mem_free = label('', (100, 120))
         #self.mem_sparkline = Sparkline(
         #    width=160, height=40, max_items=64, y_min=0, y_max=65535,
         #    x=150, y=100
@@ -263,12 +272,23 @@ class PageStats(Page):
         self.group.append(self.mem_free)
         #self.group.append(self.mem_sparkline)
 
+        self.group.append(label('Washer Sensors:', (10, 150)))
+        self.washer_sensors = label('', (100, 150))
+        self.group.append(self.washer_sensors)
+        
     def update(self):
         self.mem_alloc.text = str(gc.mem_alloc())
         self.mem_free.text = str(self.state.max_free_mem)
         #display.auto_refresh = False
         #self.mem_sparkline.add_value(gc.mem_free())
         #display.auto_refresh = True
+        self.washer_sensors.text = ' '.join(
+            f'{i.value}' for i in (
+                self.state.auto_state.washer.cycle_complete_raw,
+                self.state.auto_state.washer.blank_raw,
+                self.state.auto_state.washer.lid_locked_raw,
+            )
+        )
 
 
 class PageManual(PageStandard):
@@ -329,15 +349,22 @@ class PageManual(PageStandard):
                 confirm=self.manual_state.reset_dryer,
                 cancel=self.close_confirm
             )
-            
 
+            
+def show_console():
+    backlight.value = True
+    display.show(displayio.CIRCUITPYTHON_TERMINAL)
+
+            
 class UI:
     def __init__(self, state):
         self.state = state
+        # TODO: memory save: instantiate a new PageXYZ when the page
+        # rotates, be sure to gc.collect() when one goes out of scope
         self.pages = [
-            PageAuto(),
+            #PageAuto(self.state.auto_state),
             PageStats(self.state),
-            PageManual(self.state.manual_state),
+            #PageManual(self.state.manual_state),
         ]
         self.page_index = 0
         display.show(self.page.group)
@@ -347,28 +374,33 @@ class UI:
         return self.pages[self.page_index]
 
     async def run(self):
-        backlight.value = True
         touched = False
         back_button_released = back_button.value
         while True:
+            backlight.value = self.state.awake
             self.page.wifi.set_status(wifi.radio.connected)
             display.auto_refresh = False
             self.page.update()
             display.auto_refresh = True
             if touch := touch_screen_point():
+                self.state.tickle()
                 if touched:
                     pass
+                elif not self.state.awake:
+                    touched = True
                 elif touch.x < 30 and touch.y < 30:
+                    beep()
                     self.page_index = (self.page_index - 1) % len(self.pages)
                     display.show(self.page.group)
                     touched = True
                 elif touch.x > 210 and touch.y < 30:
+                    beep()
                     self.page_index = (self.page_index + 1) % len(self.pages)
                     display.show(self.page.group)
                     touched = True
                 else:
                     touched = self.page.touch(touch)
-                
+                    
             else:
                 touched = False
 

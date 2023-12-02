@@ -1,2 +1,4 @@
 settings.toml
 adafruit-circuitpython-bundle*/
+*.crt
+*.key
