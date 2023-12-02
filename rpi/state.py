@@ -18,7 +18,19 @@ def duration_str(s):
     return rv
 
 
-class AutoState:
+class ChangeMixin:
+    @property
+    def changed(self):
+        v = getattr(self, '_changed', False)
+        self._changed = False
+        return v
+
+    @changed.setter
+    def changed(self, value):
+        self._changed = value
+
+
+class AutoState(ChangeMixin):
     def __init__(self, alarm):
         self.alarm = alarm
         self.washer = sensors.Washer()
@@ -48,6 +60,7 @@ class AutoState:
             if self.washer_state == 'Idle' and self.washer.lid_locked:
                 self.washer_state = 'Running'
                 self.washer_started = time.monotonic()
+                self.changed = True
 
             if all((
                 self.washer_state == 'Running',
@@ -56,6 +69,7 @@ class AutoState:
             )):
                 self.washer_state = 'Done'
                 self.washer_finished = time.monotonic()
+                self.changed = True
                 self.alarm.alarm('Washer cycle complete')
 
             # it really shouldn't go idle until the dryer starts, but...
@@ -67,6 +81,7 @@ class AutoState:
                 self.washer_state = 'Idle'
                 self.washer_started = None
                 self.washer_finished = None
+                self.changed = True
                 
             await sleep(1.0)
 
@@ -83,7 +98,7 @@ class AutoState:
         return duration_str(d)
             
 
-class ManualState:
+class ManualState(ChangedMixin):
     def __init__(self, alarm):
         self.alarm = alarm
         self.washer_state = 'Idle'
@@ -107,18 +122,22 @@ class ManualState:
     def start_washer(self):
         self.washer_state = 'Running'
         self.washer_timeout = time.monotonic() + self.washer_runtime
+        self.changed = True
 
     def reset_washer(self):
         self.washer_state = 'Idle'
         self.washer_timeout = 0
+        self.changed = True
 
     def start_dryer(self):
         self.dryer_state = 'Running'
         self.dryer_timeout = time.monotonic() + self.dryer_runtime
+        self.changed = True
 
     def reset_dryer(self):
         self.dryer_state = 'Idle'
         self.dryer_timeout = 0
+        self.changed = True
 
     @property
     def washer_remaining(self):
@@ -137,11 +156,13 @@ class ManualState:
             if self.washer_timeout and time.monotonic() > self.washer_timeout:
                 self.washer_state = 'Done'
                 self.washer_timeout = 0
+                self.changed = True
                 self.alarm.alarm('Washer timer done')
 
             if self.dryer_timeout and time.monotonic() > self.dryer_timeout:
                 self.dryer_state = 'Done'
                 self.dryer_timeout = 0
+                self.changed = True
                 self.alarm.alarm('Dryer timer done')
                 
             await sleep(1.0)
@@ -157,16 +178,19 @@ class AlarmState:
         self.state = 'Alarm'
         self.messages.add(message)
         self.snooze_until = None
+        self.changed = True
 
     def snooze(self, duration=30 * 60):
         if self.state != 'Alarm':
             return
         self.state = 'Snooze'
         self.snooze_until = time.monotonic() + duration
+        self.changed = True
 
     def cancel(self):
         self.state = 'Idle'
         self.messages = set()
+        self.changed = True
 
     @property
     def reported(self):
@@ -188,7 +212,7 @@ class AlarmState:
             await sleep(5.0)
 
             
-class State:
+class State(ChangeMixin):
     def __init__(self):
         self.alarm_state = AlarmState()
         self.auto_state = AutoState(self.alarm_state)
@@ -204,6 +228,14 @@ class State:
 
     def tickle(self):
         self.last_tickle = time.monotonic()
+
+    def should_report_now(self):
+        return any([
+            self.changed,
+            self.alarm_state.changed,
+            self.auto_state.changed,
+            self.manual_state.changed,
+        ])
         
     async def local_update(self):
         while True:
