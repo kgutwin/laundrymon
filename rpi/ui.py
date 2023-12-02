@@ -8,7 +8,7 @@ import terminalio
 import vectorio
 import wifi
 #from adafruit_display_shapes.line import Line
-#from adafruit_display_shapes.roundrect import RoundRect
+from adafruit_display_shapes.roundrect import RoundRect
 #from adafruit_display_shapes.sparkline import Sparkline
 from adafruit_display_text.bitmap_label import Label
 
@@ -359,19 +359,21 @@ def show_console():
 class UI:
     def __init__(self, state):
         self.state = state
-        # TODO: memory save: instantiate a new PageXYZ when the page
-        # rotates, be sure to gc.collect() when one goes out of scope
-        self.pages = [
-            #PageAuto(self.state.auto_state),
-            PageStats(self.state),
-            #PageManual(self.state.manual_state),
-        ]
-        self.page_index = 0
-        display.show(self.page.group)
+        self._set_page(0)
 
-    @property
-    def page(self):
-        return self.pages[self.page_index]
+    def _set_page(self, index):
+        self.page_index = index
+        gc.collect()
+        if index == 0:
+            self.page = PageAuto(self.state.auto_state)
+            self.state.set_mode('Auto')
+        elif index == 1:
+            self.page = PageStats(self.state)
+        elif index == 2:
+            self.page = PageManual(self.state.manual_state)
+            self.state.set_mode('Manual')
+        display.show(self.page.group)
+        gc.collect()
 
     async def run(self):
         touched = False
@@ -390,13 +392,11 @@ class UI:
                     touched = True
                 elif touch.x < 30 and touch.y < 30:
                     beep()
-                    self.page_index = (self.page_index - 1) % len(self.pages)
-                    display.show(self.page.group)
+                    self._set_page((self.page_index - 1) % 3)
                     touched = True
                 elif touch.x > 210 and touch.y < 30:
                     beep()
-                    self.page_index = (self.page_index + 1) % len(self.pages)
-                    display.show(self.page.group)
+                    self._set_page((self.page_index + 1) % 3)
                     touched = True
                 else:
                     touched = self.page.touch(touch)

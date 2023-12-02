@@ -98,7 +98,7 @@ class AutoState(ChangeMixin):
         return duration_str(d)
             
 
-class ManualState(ChangedMixin):
+class ManualState(ChangeMixin):
     def __init__(self, alarm):
         self.alarm = alarm
         self.washer_state = 'Idle'
@@ -168,7 +168,7 @@ class ManualState(ChangedMixin):
             await sleep(1.0)
 
 
-class AlarmState:
+class AlarmState(ChangeMixin):
     def __init__(self):
         self.state = 'Idle'
         self.messages = set()
@@ -217,7 +217,7 @@ class State(ChangeMixin):
         self.alarm_state = AlarmState()
         self.auto_state = AutoState(self.alarm_state)
         self.manual_state = ManualState(self.alarm_state)
-        self.mode = 'Manual'
+        self.mode = 'Auto'
         self.max_free_mem = gc.mem_free()
         self.max_free_mem_time = time.monotonic()
         self.last_tickle = time.monotonic()
@@ -229,6 +229,10 @@ class State(ChangeMixin):
     def tickle(self):
         self.last_tickle = time.monotonic()
 
+    def set_mode(self, mode):
+        self.mode = mode
+        self.changed = True
+        
     def should_report_now(self):
         return any([
             self.changed,

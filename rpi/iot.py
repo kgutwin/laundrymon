@@ -49,7 +49,7 @@ class IOT:
             "now": time.monotonic(),
             "mode": self.state.mode,
             "auto": self.state.auto_state.reported,
-            #"manual": self.state.manual_state.reported,
+            "manual": self.state.manual_state.reported,
             "alarm": self.state.alarm_state.reported,
         }
 
