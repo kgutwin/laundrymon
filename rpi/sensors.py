@@ -73,7 +73,7 @@ class Washer:
 
     @property
     def cycle_complete(self):
-        return self.cycle_complete_raw.value > (self.blank_raw.value * 2)
+        return self.cycle_complete_raw.value > (self.blank_raw.value * 1.7)
 
     @property
     def lid_locked(self):

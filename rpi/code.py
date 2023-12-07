@@ -8,7 +8,7 @@ import iot
 async def main():
     main_state = state.State()
     cloud = iot.IOT(main_state)
-    interface = ui.UI(main_state, cloud)
+    interface = ui.UI(main_state, cloud, console=False)
 
     await gather(
         main_state.update(),

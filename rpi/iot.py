@@ -11,6 +11,8 @@ from umqtt import MQTTClient
 
 
 def dict_difference(a, b):
+    if not a:
+        return b
     rv = {}
     for k in a:
         if isinstance(a[k], dict):
@@ -60,7 +62,8 @@ class IOT:
             getenv('CIRCUITPY_WIFI_SSID'),
             getenv('CIRCUITPY_WIFI_PASSWORD'),
         )
-        
+
+        print('Wifi connected')
         self.status['wifi'] = True
         await sleep(0)
         
@@ -72,6 +75,7 @@ class IOT:
             keyfile=getenv('DEVICE_KEY_PATH'),
         )
 
+        print('SSL setup')
         self.status['ssl'] = True
         await sleep(0)
 
@@ -92,23 +96,27 @@ class IOT:
         )
         self.mqtt.set_callback(self.handle_message)
 
+        print('MQTT client configured')
         self.status['mqtt'] = True
         await sleep(0)
         
         self.mqtt.connect()
 
+        print('MQTT connected')
         self.status['connect'] = True
         await sleep(0)
         
         self.mqtt.subscribe(self.SUB_CHANNEL)
 
+        print('MQTT subscribed')
         self.status['subscribe'] = True
         gc.collect()
         await sleep(0)
         
-        self.reported_at = 0
+        self.reported_at = -999.0
         
     def disconnect(self):
+        print('MQTT: DISCONNECTING...')
         self.status['mqtt'] = False
         self.status['connect'] = False
         self.status['subscribe'] = False
@@ -117,9 +125,10 @@ class IOT:
         gc.collect()
         
     def handle_message(self, topic, msg):
-        #print('topic', topic, 'message:')
-        #print(msg)
-        pass
+        print('MQTT: topic', topic, 'message:')
+        print(msg)
+        if topic.decode() == self.SUB_CHANNEL:
+            self.state.handle_delta(json.loads(msg.decode()))
 
     def reported_state(self):
         current = {
@@ -130,17 +139,27 @@ class IOT:
             "alarm": self.state.alarm_state.reported,
         }
         delta = dict_difference(self.last_reported, current)
+        print(delta)
         self.last_reported = current
         return delta
 
-    def publish(self):
+    def desired_state(self):
+        return {
+            "alarm": self.state.alarm_state.desired,
+        }
+
+    def publish(self, desired=False):
+        msg = {
+            "state": {"reported": self.reported_state()}
+        }
+        if desired:
+            msg['state']['desired'] = self.desired_state()
         self.mqtt.publish(
             topic=self.PUB_CHANNEL,
-            msg=json.dumps({
-                "state": {"reported": self.reported_state()}
-            }).encode(),
+            msg=json.dumps(msg).encode(),
             qos=0
         )
+        print('MQTT: message published')
         self.reported_at = time.monotonic()
         self.status['published'] = True
     
@@ -149,11 +168,9 @@ class IOT:
         
         while True:
             try:
-                if (
-                        self.state.should_report_now()
-                        or time.monotonic() - self.reported_at > 60.0
-                ):
-                    self.publish()
+                changed = self.state.should_report_now()
+                if changed or time.monotonic() - self.reported_at > 60.0:
+                    self.publish(changed)
             
                 self.mqtt.check_msg()
             except:

@@ -81,11 +81,11 @@ class WifiIcon(Icon):
 class IotIcon(Icon):
     icon_text = [
         '       ###### ',
-        '        .#### ',
-        '   ...###^ ## ',
-        '   ^^   ..    ',
-        '## .###^^^    ',
-        '####^         ',
+        '      .  #### ',
+        '     ## ## ## ',
+        '    ## ##     ',
+        '## ## ##      ',
+        '####  ^       ',
         '######        ',    
     ]
     
@@ -173,7 +173,7 @@ class PageBoot(Page):
         self.cloud = cloud
         self.when_done = when_done
         self.group.append(
-            label('Starting...', (160, 40), scale=2, align=CENTER)
+            label('Starting...', (160, 48), scale=2, align=CENTER)
         )
         self.progress = [
             vectorio.Rectangle(
@@ -300,11 +300,23 @@ class PageAuto(PageStandard):
         self.clear_confirm_zone = {
             (0, 30, 320, 240): self.clear_confirm,
         }
+        self.alarm_group = displayio.Group()
+        self.alarm_group.append(vectorio.Rectangle(
+            pixel_shader=palette,
+            width=240, height=40,
+            x=40, y=160, color_index=RED_I
+        ))
+        self.alarm_group.append(
+            label('Clear Alarm', (160, 178), scale=2, align=CENTER)
+        )
+        self.alarm_group.hidden = True
+        self.group.append(self.alarm_group)
 
     def update(self):
         self.set_washer_state(self.state.auto_state.washer_state)
         self.set_washer_elapsed(self.state.auto_state.washer_elapsed)
-        if self.state.alarm_state.state == 'Alarm':
+        self.alarm_group.hidden = self.state.alarm_state.state != 'Alarm'
+        if not self.confirm and self.state.alarm_state.state == 'Alarm':
             self.touch_zones = self.clear_confirm_zone
 
     def close_confirm(self):
@@ -427,13 +439,19 @@ def show_console():
 
 
 class UI:
-    def __init__(self, state, cloud):
+    def __init__(self, state, cloud, console=False):
         self.state = state
         self.cloud = cloud
-        self._set_page(-1)
+        self.console = console
+        if self.console:
+            backlight.value = True
+            display.show(displayio.CIRCUITPYTHON_TERMINAL)
+        else:
+            self._set_page(-1)
 
     def _set_page(self, index):
         self.page_index = index
+        self.page = None
         gc.collect()
         if index == -1:
             self.page = PageBoot(self.cloud, (lambda: self._set_page(0)))
@@ -449,6 +467,10 @@ class UI:
         gc.collect()
 
     async def run(self):
+        if self.console:
+            while True:
+                await sleep(15)
+        
         touched = False
         back_button_released = back_button.value
         while True:
@@ -460,20 +482,24 @@ class UI:
             display.auto_refresh = True
             if touch := touch_screen_point():
                 self.state.tickle()
-                if touched:
-                    pass
-                elif not self.state.awake:
-                    touched = True
-                elif touch.x < 30 and touch.y < 30:
-                    beep()
-                    self._set_page((self.page_index - 1) % 3)
-                    touched = True
-                elif touch.x > 210 and touch.y < 30:
-                    beep()
-                    self._set_page((self.page_index + 1) % 3)
-                    touched = True
-                else:
-                    touched = self.page.touch(touch)
+                try:
+                    if touched:
+                        pass
+                    elif not self.state.awake:
+                        touched = True
+                    elif touch.x < 30 and touch.y < 30:
+                        beep()
+                        self._set_page((self.page_index - 1) % 3)
+                        touched = True
+                    elif touch.x > 210 and touch.y < 30:
+                        beep()
+                        self._set_page((self.page_index + 1) % 3)
+                        touched = True
+                    else:
+                        touched = self.page.touch(touch)
+                except MemoryError:
+                    beep(100)
+                    gc.collect()
                     
             else:
                 touched = False

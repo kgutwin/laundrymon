@@ -50,9 +50,9 @@ back_button.switch_to_input(digitalio.Pull.UP)
 piezo_l = pwmio.PWMOut(PIEZO_L, frequency=900)
 piezo_r = pwmio.PWMOut(PIEZO_R, frequency=1000)
 
-def beep():
+def beep(ms=10):
     piezo_l.duty_cycle = 2 ** 15
     piezo_r.duty_cycle = 2 ** 15
-    microcontroller.delay_us(10000)
+    microcontroller.delay_us(ms * 1000)
     piezo_r.duty_cycle = 0
     piezo_l.duty_cycle = 0

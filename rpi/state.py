@@ -54,7 +54,7 @@ class AutoState(ChangeMixin):
                 }
             }
         }
-        
+
     async def update(self):
         while True:
             if self.washer_state == 'Idle' and self.washer.lid_locked:
@@ -174,9 +174,10 @@ class AlarmState(ChangeMixin):
         self.messages = set()
         self.snooze_until = None
 
-    def alarm(self, message):
+    def alarm(self, message=None):
         self.state = 'Alarm'
-        self.messages.add(message)
+        if message:
+            self.messages.add(message)
         self.snooze_until = None
         self.changed = True
 
@@ -200,6 +201,25 @@ class AlarmState(ChangeMixin):
             "messages": sorted(list(self.messages)),
         }
 
+    @property
+    def desired(self):
+        return self.reported
+
+    def handle_delta(self, desired):
+        if 'messages' in desired:
+            self.messages = set(desired['messages'])
+            self.changed = True
+            
+        if 'state' in desired:
+            if desired['state'] == 'Idle':
+                self.cancel()
+            elif desired['state'] == 'Alarm':
+                self.alarm()
+            elif desired['state'] == 'Snooze':
+                if 'snooze_until' in desired:
+                    duration = desired['snooze_until'] - time.monotonic()
+                self.snooze(duration)
+    
     async def update(self):
         while True:
             if (
@@ -224,6 +244,9 @@ class State(ChangeMixin):
 
     @property
     def awake(self):
+        if self.alarm_state.state == 'Alarm':
+            return True
+        
         if self.mode == 'Auto':
             if self.auto_state.washer_state != 'Idle':
                 return True
@@ -267,3 +290,8 @@ class State(ChangeMixin):
             self.manual_state.update(),
             self.auto_state.update()
         )
+
+    def handle_delta(self, msg):
+        desired = msg['state']
+        if 'alarm' in desired:
+            self.alarm_state.handle_delta(desired['alarm'])
