@@ -1,24 +1,14 @@
-import gc
-import os
-import time
-import wifi
 from asyncio import gather, run
 
 import ui
 import state
 import iot
 
-wifi.radio.connect(
-    os.getenv('CIRCUITPY_WIFI_SSID'),
-    os.getenv('CIRCUITPY_WIFI_PASSWORD'),
-)
 
 async def main():
-    ui.show_console()
-
     main_state = state.State()
     cloud = iot.IOT(main_state)
-    interface = ui.UI(main_state)
+    interface = ui.UI(main_state, cloud)
 
     await gather(
         main_state.update(),

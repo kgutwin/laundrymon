@@ -1,5 +1,4 @@
 import gc
-#import time
 from asyncio import sleep
 from array import array
 import bitmaptools
@@ -7,7 +6,7 @@ import displayio
 import terminalio
 import vectorio
 import wifi
-#from adafruit_display_shapes.line import Line
+
 from adafruit_display_shapes.roundrect import RoundRect
 #from adafruit_display_shapes.sparkline import Sparkline
 from adafruit_display_text.bitmap_label import Label
@@ -40,16 +39,6 @@ def label(text, pos, color=WHITE_V, scale=1, align=LEFT):
         rv.x, rv.y = pos
     return rv
 
-WIFI_ICON = [
-    '  ..####..    ',
-    '.#^^ .. ^^#.  ',
-    '^ .##^^##. ^  ',
-    '  ^ .##. ^    ',
-    '    ^  ^      ',
-    '     ##       ',
-    '              ',    
-]
-
 
 def icon(rows, background=0):
     width, height = len(rows[0]), len(rows) * 2
@@ -63,20 +52,47 @@ def icon(rows, background=0):
     bitmaptools.arrayblit(bitmap, buf)
     return bitmap
 
-
-class WifiIcon:
-    wifi_icon_bitmap = icon(WIFI_ICON, background=BLUE_I)
-    
-    def __init__(self):
-        self.group = displayio.Group(x=280, y=4)
+class Icon:
+    def __init__(self, icon_text, x, y):
+        self.group = displayio.Group(x=x, y=y)
         self.group.append(displayio.TileGrid(
-            self.wifi_icon_bitmap, pixel_shader=palette, x=0, y=0
+            icon(icon_text, background=BLUE_I),
+            pixel_shader=palette, x=0, y=0
         ))
 
     def set_status(self, status):
         self.group.hidden = not status
 
 
+class WifiIcon(Icon):
+    icon_text = [
+        '  ..####..    ',
+        '.#^^ .. ^^#.  ',
+        '^ .##^^##. ^  ',
+        '  ^ .##. ^    ',
+        '    ^  ^      ',
+        '     ##       ',
+        '              ',    
+    ]
+    
+    def __init__(self):
+        super().__init__(self.icon_text, 280, 4)
+
+class IotIcon(Icon):
+    icon_text = [
+        '       ###### ',
+        '        .#### ',
+        '   ...###^ ## ',
+        '   ^^   ..    ',
+        '## .###^^^    ',
+        '####^         ',
+        '######        ',    
+    ]
+    
+    def __init__(self):
+        super().__init__(self.icon_text, 250, 3)        
+
+        
 class ConfirmBox:
     def __init__(self, message):
         self.group = displayio.Group(x=10, y=60)
@@ -91,8 +107,6 @@ class ConfirmBox:
             x=2, y=2, color_index=BLACK_I
         ))
         self.group.append(label(message, (150, 20), align=CENTER))
-        # TODO: memory save: pay close attention to memory used by
-        # RoundRect, replace with boring vectorio.Rectangle if needed
         confirm = RoundRect(
             x=60, y=70, width=80, height=30, r=3,
             fill=GREEN_V, outline=WHITE_V, stroke=1
@@ -134,8 +148,10 @@ class Page:
         top_bar.append(label('>', (316, 9), align=RIGHT))
         self.wifi = WifiIcon()
         top_bar.append(self.wifi.group)
+        self.iot = IotIcon()
+        top_bar.append(self.iot.group)
         self.group.append(top_bar)
-        #self.group.append(Line(160, 20, 160, 240, WHITE))
+
         self.touch_zones = {}
 
     def update(self):
@@ -150,7 +166,37 @@ class Page:
             
         return False
 
+    
+class PageBoot(Page):
+    def __init__(self, cloud, when_done):
+        super().__init__('LaundryMon')
+        self.cloud = cloud
+        self.when_done = when_done
+        self.group.append(
+            label('Starting...', (160, 40), scale=2, align=CENTER)
+        )
+        self.progress = [
+            vectorio.Rectangle(
+                pixel_shader=palette,
+                width=38, height=38,
+                x=40*(i+1), y=80
+            )
+            for i in range(6)
+        ]
+        for i in self.progress:
+            self.group.append(i)
+        self.status_keys = [
+            'wifi', 'ssl', 'mqtt', 'connect', 'subscribe', 'published'
+        ]
 
+    def update(self):
+        for phase, box in zip(self.status_keys, self.progress):
+            box.color_index = GREEN_I if self.cloud.status[phase] else BLUE_I
+
+        if self.cloud.connected:
+            self.when_done()
+
+            
 class PageStandard(Page):
     def __init__(self, title):
         super().__init__(title)
@@ -247,13 +293,36 @@ class PageStandard(Page):
             
         
 class PageAuto(PageStandard):
-    def __init__(self, auto_state):
+    def __init__(self, state):
         super().__init__('Auto')
-        self.auto_state = auto_state
+        self.state = state
+        self.confirm = None
+        self.clear_confirm_zone = {
+            (0, 30, 320, 240): self.clear_confirm,
+        }
 
     def update(self):
-        self.set_washer_state(self.auto_state.washer_state)
-        self.set_washer_elapsed(self.auto_state.washer_elapsed)
+        self.set_washer_state(self.state.auto_state.washer_state)
+        self.set_washer_elapsed(self.state.auto_state.washer_elapsed)
+        if self.state.alarm_state.state == 'Alarm':
+            self.touch_zones = self.clear_confirm_zone
+
+    def close_confirm(self):
+        if self.confirm:
+            self.confirm.group.hidden = True
+            display.refresh()
+            self.group.remove(self.confirm.group)
+            self.touch_zones = {}
+            self.confirm = None
+            gc.collect()
+            
+    def clear_confirm(self):
+        self.confirm = ConfirmBox('Are you sure you want to cancel the alarm?')
+        self.group.append(self.confirm.group)
+        self.touch_zones = self.confirm.touch_zones(
+            confirm=self.state.alarm_state.cancel,
+            cancel=self.close_confirm
+        )
         
         
 class PageStats(Page):
@@ -319,6 +388,7 @@ class PageManual(PageStandard):
             self.group.remove(self.confirm.group)
             self.touch_zones = self.default_touch_zones
             self.confirm = None
+            gc.collect()
         
     def touch_washer(self):
         if self.manual_state.washer_state == 'Idle':
@@ -355,17 +425,20 @@ def show_console():
     backlight.value = True
     display.show(displayio.CIRCUITPYTHON_TERMINAL)
 
-            
+
 class UI:
-    def __init__(self, state):
+    def __init__(self, state, cloud):
         self.state = state
-        self._set_page(0)
+        self.cloud = cloud
+        self._set_page(-1)
 
     def _set_page(self, index):
         self.page_index = index
         gc.collect()
-        if index == 0:
-            self.page = PageAuto(self.state.auto_state)
+        if index == -1:
+            self.page = PageBoot(self.cloud, (lambda: self._set_page(0)))
+        elif index == 0:
+            self.page = PageAuto(self.state)
             self.state.set_mode('Auto')
         elif index == 1:
             self.page = PageStats(self.state)
@@ -381,6 +454,7 @@ class UI:
         while True:
             backlight.value = self.state.awake
             self.page.wifi.set_status(wifi.radio.connected)
+            self.page.iot.set_status(self.cloud.connected)
             display.auto_refresh = False
             self.page.update()
             display.auto_refresh = True

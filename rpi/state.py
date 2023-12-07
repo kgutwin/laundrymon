@@ -224,6 +224,16 @@ class State(ChangeMixin):
 
     @property
     def awake(self):
+        if self.mode == 'Auto':
+            if self.auto_state.washer_state != 'Idle':
+                return True
+            
+        if self.mode == 'Manual':
+            if self.manual_state.washer_state != 'Idle':
+                return True
+            if self.manual_state.dryer_state != 'Idle':
+                return True
+            
         return time.monotonic() < self.last_tickle + (5.0 * 60)
 
     def tickle(self):
